@@ -1,126 +1,67 @@
 import streamlit as st
-from groq import Groq
-import re
+from openai import OpenAI
 
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="CodeSmith",
-    layout="wide"
-)
+st.set_page_config(page_title="CodeSmith AI", page_icon="🤖")
 
-# ---------------- SESSION STATE ----------------
-if "api_key" not in st.session_state:
-    st.session_state.api_key = "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"
+client = OpenAI(api_key="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")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if "latest_answer" not in st.session_state:
-    st.session_state.latest_answer = None
-
-# ---------------- SIDEBAR ----------------
 with st.sidebar:
-    st.markdown("## ⚙️ CodeSmith Options")
+    mode = st.selectbox("Answer Type", ["Theory Only", "Code Only", "Code + Theory"])
+    
+    if st.button("Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
 
-    answer_mode = st.selectbox(
-        "Select Answer Type",
-        ["Code Only", "Theory Only", "Code + Theory"]
-    )
-
-    if st.button("🗑️ Clear History"):
-        st.session_state.chat_history = []
-        st.session_state.latest_answer = None
-        st.success("History Cleared")
-
-    st.markdown("---")
-    st.markdown("## 📜 Chat History")
-
-    # Show all previous Q&A in sidebar
-    for i, chat in enumerate(st.session_state.chat_history, 1):
-        with st.expander(f"Q{i}: {chat['question'][:30]}"):
-            st.code(chat["answer"])
-
-    st.markdown("---")
-    st.info("👨‍💻 Welcome to CodeSmith AI")
-
-# ---------------- MAIN UI ----------------
 st.title("🤖 CodeSmith AI")
 
-query = st.text_area(
-    "Enter your question:",
-    height=100,
-    placeholder="Type your question here..."
-)
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        if msg["role"] == "assistant" and msg["mode"] == "Code Only":
+            st.code(msg["content"])
+        else:
+            st.markdown(msg["content"])
 
-# ---------------- BUTTON ----------------
-if st.button("Click here for search"):
-    if not query.strip():
-        st.warning("⚠️ Please enter a question first!")
-    else:
-        try:
-            client = Groq(api_key=st.session_state.api_key)
+prompt = st.chat_input("Ask anything...")
 
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
             system_prompt = f"""
-You are an expert AI like Gemini or ChatGPT.
-Mode: {answer_mode}
+You are an intelligent AI assistant like ChatGPT.
+
+Answer Mode: {mode}
+
+Rules:
+1. Give complete, accurate, and user-friendly answers.
+2. If the user asks theory, explain clearly in simple language.
+3. If the user asks code, provide correct and clean code.
+4. If mode is Code + Theory, first explain then provide code.
+5. Format answers properly like ChatGPT.
+6. Keep answers detailed but easy to understand.
 """
 
-            with st.spinner("Generating response..."):
-                response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": query}
-                    ]
-                )
+            response = client.responses.create(
+                model="gpt-5-nano",
+                input=f"{system_prompt}\nUser: {prompt}"
+            )
 
-            answer = response.choices[0].message.content
+            reply = response.output_text.strip()
 
-            # Save to history
-            st.session_state.chat_history.append({
-                "question": query,
-                "answer": answer
-            })
+            if mode == "Code Only":
+                st.code(reply)
+            else:
+                st.markdown(reply)
 
-            # Save latest answer for main display
-            st.session_state.latest_answer = answer
-
-            st.success("✅ Response Generated")
-
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
-
-# ---------------- LATEST ANSWER DISPLAY ----------------
-if st.session_state.latest_answer:
-    st.subheader("🧠 Latest Answer")
-
-    # ---------------- Theory Only ----------------
-    if answer_mode == "Theory Only":
-        st.write(st.session_state.latest_answer)
-        st.text_area("Copy Theory", value=st.session_state.latest_answer, height=150)
-
-    # ---------------- Code Only ----------------
-    elif answer_mode == "Code Only":
-        st.code(st.session_state.latest_answer, language="python")
-        st.text_area("Copy Code", value=st.session_state.latest_answer, height=150)
-
-    # ---------------- Code + Theory ----------------
-    else:
-        answer_text = st.session_state.latest_answer
-
-        # Detect code blocks using triple backticks
-        code_blocks = re.findall(r"```(.*?)```", answer_text, flags=re.DOTALL)
-        theory_text = re.sub(r"```.*?```", "", answer_text, flags=re.DOTALL).strip()
-
-        # Display Theory
-        if theory_text:
-            st.write("**Theory:**")
-            st.write(theory_text)
-            st.text_area("Copy Theory", value=theory_text, height=150)
-
-        # Display Code Blocks
-        if code_blocks:
-            for i, code in enumerate(code_blocks, 1):
-                st.write(f"**Code Block {i}:**")
-                st.code(code, language="python")
-                st.text_area(f"Copy Code {i}", value=code, height=150) 
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": reply,
+        "mode": mode
+    })
